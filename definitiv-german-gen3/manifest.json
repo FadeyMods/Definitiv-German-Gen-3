@@ -1,0 +1,80 @@
+{
+  "id": "definitiv-german-gen3",
+  "name": "📀🇩🇪 Definitiv German 💬✅ Gen 3",
+  "version": "1.0.0",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "permissions": [
+    "engine_internals"
+  ],
+  "category": "Translation",
+  "game_version": ">=0.0.0-0 <2.0.0",
+  "priority": 50,
+  "games": [
+    "emerald",
+    "ruby",
+    "sapphire",
+    "firered",
+    "leafgreen"
+  ],
+  "optional_imports": [
+    {
+      "id": "smaragd_de",
+      "name": "Pokémon Smaragd-Edition (deutsch)",
+      "description": "Nur für die Smaragd-Edition nötig. Deine deutsche ROM: Pokemon - Smaragd-Edition (Germany).gba",
+      "file": "smaragd_de.gba",
+      "md5": [
+        "f793a854654b467211fc32c4062cb183"
+      ],
+      "size": 16777216
+    },
+    {
+      "id": "rubin_de",
+      "name": "Pokémon Rubin-Edition (deutsch)",
+      "description": "Nur für die Rubin-Edition nötig. Deine deutsche ROM: Pokemon - Rubin-Edition (Germany).gba",
+      "file": "rubin_de.gba",
+      "md5": [
+        "1af28ea547d4116dc752c93f7f694239"
+      ],
+      "size": 16777216
+    },
+    {
+      "id": "saphir_de",
+      "name": "Pokémon Saphir-Edition (deutsch)",
+      "description": "Nur für die Saphir-Edition nötig. Deine deutsche ROM: Pokemon - Saphir-Edition (Germany).gba",
+      "file": "saphir_de.gba",
+      "md5": [
+        "43906c58afaf0760f62ec698ef10eafc"
+      ],
+      "size": 16777216
+    },
+    {
+      "id": "feuerrot_de",
+      "name": "Pokémon Feuerrote Edition (deutsch)",
+      "description": "Nur für die Feuerrote Edition nötig. Deine deutsche ROM: Pokemon - Feuerrote Edition (Germany).gba",
+      "file": "feuerrot_de.gba",
+      "md5": [
+        "6648a0484a56097ca75d6af87ebce225"
+      ],
+      "size": 16777216
+    },
+    {
+      "id": "blattgruen_de",
+      "name": "Pokémon Blattgrüne Edition (deutsch)",
+      "description": "Nur für die Blattgrüne Edition nötig. Deine deutsche ROM: Pokemon - Blattgruene Edition (Germany).gba",
+      "file": "blattgruen_de.gba",
+      "md5": [
+        "4dd5e72f942a921d3fe53d21a39f4cba"
+      ],
+      "size": 16777216
+    }
+  ],
+  "github": "FadeyMods/Definitiv-German-Gen-3",
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [
+    "deutsch-gen3"
+  ],
+  "description": "Macht Rubin, Saphir, Smaragd, Feuerrot und Blattgrün komplett deutsch – die Texte werden beim Start aus DEINEN deutschen ROMs gelesen. Der Mod selbst enthält keine ROM-Inhalte."
+}
