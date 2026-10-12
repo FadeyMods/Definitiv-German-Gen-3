@@ -124,6 +124,9 @@ return {
         offs = { 4095516, 4095542, 4095565, 4095588 },
       },
     },
+    groessen = {
+      sStartCopyrightBannerAnimTable = 40,
+    },
     karte = {
       daten = {
         AreaMarkerPalette = 4213332,
@@ -2447,6 +2450,11 @@ return {
         [4412624] = { "gBardSounds_Pokemon2" },
       },
     },
+    manifestFelder = {
+      ["data/generated/gba/title/manifest.lua"] = {
+        logoFlashPaletteIndex = 9,
+      },
+    },
     module = { {
       dateien = {
         ["data/generated/gba/field_effects/objects.lua"] = "roh",
@@ -2682,21 +2690,6 @@ return {
       },
     }, {
       dateien = {
-        ["data/generated/gba/rse/common_ui/cursor_left.png"] = "png0",
-        ["data/generated/gba/rse/common_ui/cursor_left_mask.png"] = "mask",
-        ["data/generated/gba/rse/common_ui/cursor_middle.png"] = "png0",
-        ["data/generated/gba/rse/common_ui/cursor_middle_mask.png"] = "mask",
-        ["data/generated/gba/rse/common_ui/cursor_right.png"] = "png0",
-        ["data/generated/gba/rse/common_ui/cursor_right_mask.png"] = "mask",
-        ["data/generated/gba/rse/common_ui/cursor_wide.png"] = "png0",
-        ["data/generated/gba/rse/common_ui/cursor_wide_mask.png"] = "mask",
-      },
-      modul = "src.import.gba.rs.extract_common_ui",
-      opts = {
-
-      },
-    }, {
-      dateien = {
         ["data/generated/gba/rse/bag/hm.png"] = "png0",
         ["data/generated/gba/rse/bag/label_1_female.png"] = "png",
         ["data/generated/gba/rse/bag/label_1_male.png"] = "png",
@@ -2706,7 +2699,6 @@ return {
         ["data/generated/gba/rse/bag/label_3_male.png"] = "png",
         ["data/generated/gba/rse/bag/label_4_female.png"] = "png",
         ["data/generated/gba/rse/bag/label_4_male.png"] = "png",
-        ["data/generated/gba/rse/bag/list_cursor.png"] = "png0",
         ["data/generated/gba/rse/bag/manifest.lua"] = "roh",
         ["data/generated/gba/rse/bag/number.png"] = "png0",
       },
@@ -3214,6 +3206,18 @@ return {
 
       },
     } },
+    rsTitel = {
+      banner_x = { 108, 172 },
+      banner_y = 43,
+      banner_ziel = 83,
+      druecke_x = 86,
+      druecke_y = 108,
+      punkte_anim = 9,
+      punkte_x = 86,
+      punkte_y = 100,
+      t_anim = 8,
+      t_x = 182,
+    },
   },
   kacheln = {
     building__shop = {

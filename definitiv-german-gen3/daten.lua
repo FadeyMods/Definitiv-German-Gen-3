@@ -290,4 +290,25 @@ return function(W)
       return Kit._deutschLoadLua(pfad, ...)
     end
   end)
+  -- Namenseingabe (src/ui/game3/naming.lua) laedt ihr Manifest ebenfalls mit love.filesystem.load; die
+  -- Ueberschrift ("YOUR NAME?" ...) steht in templates[i].title -> Ueberschrift aus dem deutschen Manifest
+  pcall(function()
+    local Naming = require("src.ui.game3.naming")
+    local Kit = require("src.ui.game3.rse.scene_kit")
+    Naming._deutschTpl = Naming._deutschTpl or Naming.templateFromManifest
+    Naming.templateFromManifest = function(man, name, ...)
+      local tpl = Naming._deutschTpl(man, name, ...)
+      local ok, de = pcall(Kit.loadLua, "data/generated/gba/naming/manifest.lua")
+      if ok and type(de) == "table" and type(tpl) == "table" then
+        local ok2, dtpl = pcall(Naming._deutschTpl, de, name)
+        if ok2 and type(dtpl) == "table" and dtpl.title then
+          local kopie = {}
+          for k, v in pairs(tpl) do kopie[k] = v end
+          kopie.title = dtpl.title
+          return kopie
+        end
+      end
+      return tpl
+    end
+  end)
 end

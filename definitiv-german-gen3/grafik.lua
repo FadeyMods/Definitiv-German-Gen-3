@@ -185,8 +185,17 @@ return function(W)
     local VS = Versions.module().SYMS
     if type(VS) == "table" and VS ~= inst[1] then inst[2] = VS end
     for _, S in ipairs(inst) do
-      local a = { off = S.off, addr = S.addr, namesAt = S.namesAt, funcOff = S.funcOff, funcAt = S.funcAt }
+      local a = { off = S.off, addr = S.addr, namesAt = S.namesAt, funcOff = S.funcOff, funcAt = S.funcAt, size = S.size }
       alt[S] = a
+      -- R/S: Tabellen, die in der DE-Fassung mehr Eintraege haben (Rezept groessen, aus pokeruby_de.sym)
+      local gr = G.groessen
+      if gr and a.size then
+        S.size = function(name)
+          local g = gr[name] or (type(name) == "string" and gr[name:match(":(.*)$") or ""])
+          if g then return g end
+          return a.size(name)
+        end
+      end
       S.off = function(name) return daten[name] or a.off(name) end
       S.addr = function(name) return 0x08000000 + S.off(name) end
       S.namesAt = function(off)
@@ -286,6 +295,7 @@ return function(W)
     for j = #neuTab, 1, -1 do local b = neuTab[j]; b[1][b[2]] = nil end
     for S, a in pairs(alt) do
       S.off, S.addr, S.namesAt, S.funcOff, S.funcAt = a.off, a.addr, a.namesAt, a.funcOff, a.funcAt
+      if a.size then S.size = a.size end
     end
     if not ok then log:warn("Deutsch Gen 3: Grafik %s: %s", tostring(e.modul), tostring(err)) end
     gelaufen[i] = ok
@@ -328,30 +338,45 @@ return function(W)
   local function pngRgba(s)
     if type(s) ~= "string" or s:sub(2, 4) ~= "PNG" then return nil end
     local function be32(i) local a, b, c, d = s:byte(i, i + 3); return ((a * 256 + b) * 256 + c) * 256 + d end
-    local pos, w, h, typ, idat = 9, nil, nil, nil, {}
+    local pos, w, h, typ, tiefe, idat, plte, trns = 9, nil, nil, nil, nil, {}, nil, nil
     while pos + 8 <= #s do
       local len, kind = be32(pos), s:sub(pos + 4, pos + 7)
       if kind == "IHDR" then
         w, h = be32(pos + 8), be32(pos + 12)
-        if s:byte(pos + 16) ~= 8 or s:byte(pos + 20) ~= 0 then return nil end
-        typ = s:byte(pos + 17)
+        tiefe, typ = s:byte(pos + 16), s:byte(pos + 17)
+        if s:byte(pos + 20) ~= 0 then return nil end
       elseif kind == "IDAT" then idat[#idat + 1] = s:sub(pos + 8, pos + 7 + len)
+      elseif kind == "PLTE" then plte = s:sub(pos + 8, pos + 7 + len)
+      elseif kind == "tRNS" then trns = s:sub(pos + 8, pos + 7 + len)
       elseif kind == "IEND" then break end
       pos = pos + 12 + len
     end
-    local bpp = typ == 6 and 4 or typ == 2 and 3 or nil
+    -- Farbtyp 6 RGBA / 2 RGB mit 8 Bit; Farbtyp 3 Palette (PLTE + tRNS) mit 1, 2, 4 oder 8 Bit
+    -- (z. B. Titelbild, PRESS START und Copyright aus extract_intro)
+    local bpp, farbe
+    if (typ == 6 or typ == 2) and tiefe == 8 then
+      bpp = typ == 6 and 4 or 3
+    elseif typ == 3 and plte and (tiefe == 1 or tiefe == 2 or tiefe == 4 or tiefe == 8) then
+      bpp = 1
+      farbe = {}
+      for i = 0, #plte / 3 - 1 do
+        farbe[i] = plte:sub(i * 3 + 1, i * 3 + 3) .. string.char(trns and trns:byte(i + 1) or 255)
+      end
+    end
     if not (w and bpp) then return nil end
+    local zb = farbe and math.ceil(w * tiefe / 8) or w * bpp       -- Bytes je Zeile
     local raw = love.data.decompress("string", "zlib", table.concat(idat))
     local zeilen, prev, p = {}, {}, 1
-    for x = 1, w * bpp do prev[x] = 0 end
+    for x = 1, zb do prev[x] = 0 end
+    local leer = string.char(0, 0, 0, 0)
     for y = 1, h do
       local f = raw:byte(p)
-      local z = { raw:byte(p + 1, p + w * bpp) }
-      p = p + 1 + w * bpp
-      for x = 1, w * bpp do
+      local z = { raw:byte(p + 1, p + zb) }
+      p = p + 1 + zb
+      for x = 1, zb do
         local a = x > bpp and z[x - bpp] or 0
         local b, c = prev[x], x > bpp and prev[x - bpp] or 0
-        local v = z[x]
+        local v = z[x] or 0
         if f == 1 then v = v + a
         elseif f == 2 then v = v + b
         elseif f == 3 then v = v + math.floor((a + b) / 2)
@@ -363,9 +388,20 @@ return function(W)
         z[x] = v % 256
       end
       local t = {}
-      for x = 0, w - 1 do
-        local i = x * bpp
-        t[x + 1] = string.char(z[i + 1], z[i + 2], z[i + 3], bpp == 4 and z[i + 4] or 255)
+      if farbe then
+        local proByte = 8 / tiefe
+        local maske = 2 ^ tiefe
+        for x = 0, w - 1 do
+          local byte = z[math.floor(x / proByte) + 1] or 0
+          local schieb = (proByte - 1 - x % proByte) * tiefe
+          local idx = math.floor(byte / 2 ^ schieb) % maske
+          t[x + 1] = farbe[idx] or leer
+        end
+      else
+        for x = 0, w - 1 do
+          local i = x * bpp
+          t[x + 1] = string.char(z[i + 1], z[i + 2], z[i + 3], bpp == 4 and z[i + 4] or 255)
+        end
       end
       zeilen[y] = table.concat(t)
       prev = z
@@ -388,6 +424,60 @@ return function(W)
     end
     return rec.data
   end
+
+  -- R/S-Titelbild wie in der DE-Fassung (pokeruby src/title_screen.c, #elif GERMAN): DRUECKE START aus drei
+  -- Sprites plus T (Animation 8) und Ue-Punkten (Animation 9), Versions-Banner (64x64) an anderer Stelle
+  pcall(function()
+    local T = G.rsTitel
+    if not T or (ver ~= "ruby" and ver ~= "sapphire") then return end
+    local Title = require("src.ui.game3.rs.title")
+    local Machine = require("src.ui.game3.rse.gba_machine")
+    local Sprites = require("src.core.game3.gba_sprites")
+    local bit = require("bit")
+    local function s16(v) v = bit.band(v, 0xFFFF); return v < 0x8000 and v or v - 0x10000 end
+    local function pressCb(s)
+      if s.data[0] == 1 then s.data[1] = s16(s.data[1] + 1); s.invisible = bit.band(s.data[1], 16) == 0
+      else s.invisible = false end
+    end
+    Title.createTextBanners = function(self)
+      local sp = self.m.ppu.sprites
+      local template = Machine.template(self:sprite("press_start"), { paletteTag = 1001, callback = pressCb })
+      local anz = #(self:sprite("press_start").anims or {})
+      local function neu(anim, x, y, blinkt)
+        if anim >= anz then return end
+        local s = sp:get(sp:create(template, x, y, 0))
+        Sprites.startAnim(s, anim)
+        if blinkt then s.data[0] = 1 end
+      end
+      for i = 0, 2 do neu(i, T.druecke_x + i * 32, T.druecke_y, true) end
+      neu(T.t_anim, T.t_x, T.druecke_y, true)
+      neu(T.punkte_anim, T.punkte_x, T.punkte_y, true)
+      for i = 3, 7 do neu(i, 56 + (i - 3) * 32, 148, false) end
+    end
+    -- Banner: beim ersten Aufruf an die DE-Stelle setzen, Zielhoehe DE
+    local function banner(self, s, links)
+      if not s._deutsch then
+        s._deutsch = true
+        s.x, s.y = T.banner_x[links and 1 or 2], T.banner_y
+      end
+      local d = self.m.tasks:get(s.data[1]).data
+      if d[1] ~= 0 then
+        s.oam.objMode, s.y, s.invisible = Sprites.OBJ_NORMAL, T.banner_ziel, false
+      elseif links then
+        if d[5] ~= 0 then d[5] = d[5] - 1 end
+        if d[5] < 64 then
+          s.invisible = false
+          if s.y ~= T.banner_ziel then s.y = s.y + 1 end
+          self.m.ppu:set("BLDALPHA", self:alphaReg(math.floor(d[5] / 2)))
+        end
+      elseif d[5] < 64 then
+        s.invisible = false
+        if s.y ~= T.banner_ziel then s.y = s.y + 1 end
+      end
+    end
+    Title.bannerLeftCb = function(self, s) return banner(self, s, true) end
+    Title.bannerRightCb = function(self, s) return banner(self, s, false) end
+  end)
 
   -- Hüllen (B): Bildpfade aus dem Cache -> deutsches Bild, sonst unveraendert weiter
   pcall(function()
@@ -445,24 +535,44 @@ return function(W)
       return vorher(rel, ...)
     end
   end)
+  -- Lua-Manifeste aus dem DE-Lauf (Tabellen), einmal geladen
+  local fertigLua = {}
+  local function deLua(pfad)
+    local r = relVon(pfad)
+    if not (r and r:sub(-4) == ".lua") then return nil end
+    if fertigLua[r] == nil then
+      local b = roh(r)
+      local chunk = b and (loadstring or load)(b, "@" .. r)
+      if chunk and setfenv then setfenv(chunk, {}) end
+      local ok, tab = false, nil
+      if chunk then ok, tab = pcall(chunk) end
+      fertigLua[r] = (ok and type(tab) == "table") and tab or false
+      -- einzelne Felder, die der Extraktor nach der EN-Fassung festlegt (Rezept manifestFelder)
+      local felder = fertigLua[r] and G.manifestFelder and G.manifestFelder[r]
+      if felder then for k, v in pairs(felder) do fertigLua[r][k] = v end end
+    end
+    return fertigLua[r] or nil
+  end
   pcall(function()
     local Kit = require("src.ui.game3.rse.scene_kit")
     local vorher = Kit.loadLua
-    local fertigLua = {}
     Kit.loadLua = function(pfad, ...)
-      local r = relVon(pfad)
-      if r and r:sub(-4) == ".lua" then
-        if fertigLua[r] == nil then
-          local b = roh(r)
-          local chunk = b and (loadstring or load)(b, "@" .. r)
-          if chunk and setfenv then setfenv(chunk, {}) end
-          local ok, tab = false, nil
-          if chunk then ok, tab = pcall(chunk) end
-          fertigLua[r] = (ok and type(tab) == "table") and tab or false
-        end
-        if fertigLua[r] then return fertigLua[r] end
+      return deLua(pfad) or vorher(pfad, ...)
+    end
+  end)
+  -- GBA-Bildschirme (Titel, Intro ...): Machine:manifest laedt mit love.filesystem.load (fuer Mods gesperrt)
+  pcall(function()
+    local Machine = require("src.ui.game3.rse.gba_machine")
+    local vorher = Machine.manifest
+    Machine.manifest = function(self, pfad, ...)
+      local m = self.manifests and self.manifests[pfad]
+      if m then return m end
+      local t = deLua(pfad)
+      if t then
+        if self.manifests then self.manifests[pfad] = t end
+        return t
       end
-      return vorher(pfad, ...)
+      return vorher(self, pfad, ...)
     end
   end)
   -- RS-Team-Menue: die Knoepfe ZURUECK/OK sind Kacheln aus misc.gfx, die party_chrome direkt mit

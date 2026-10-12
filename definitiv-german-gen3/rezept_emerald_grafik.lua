@@ -1018,6 +1018,7 @@ return {
       },
     }, {
       dateien = {
+        ["data/generated/gba/title/manifest.lua"] = "roh",
         ["data/generated/gba/title/press_start.png"] = "png0",
         ["data/generated/gba/title/version_banner_left.png"] = "png0",
         ["data/generated/gba/title/version_banner_right.png"] = "png0",
