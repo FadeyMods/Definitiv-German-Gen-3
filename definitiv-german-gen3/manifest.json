@@ -1,7 +1,7 @@
 {
   "id": "definitiv-german-gen3",
-  "name": "📀🇩🇪 Definitiv German 💬✅ Gen 3",
-  "version": "1.0.1",
+  "name": "Definitiv German Gen 3",
+  "version": "1.0.2",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -32,20 +32,22 @@
     {
       "id": "rubin_de",
       "name": "Pokémon Rubin-Edition (deutsch)",
-      "description": "Nur für die Rubin-Edition nötig. Deine deutsche ROM: Pokemon - Rubin-Edition (Germany).gba",
+      "description": "Nur für die Rubin-Edition nötig. Deine deutsche ROM: Pokemon - Rubin-Edition (Germany).gba (auch Rev 1)",
       "file": "rubin_de.gba",
       "md5": [
-        "1af28ea547d4116dc752c93f7f694239"
+        "1af28ea547d4116dc752c93f7f694239",
+        "9aa6ac6fd369a686373a2e1bf8bb6aa3"
       ],
       "size": 16777216
     },
     {
       "id": "saphir_de",
       "name": "Pokémon Saphir-Edition (deutsch)",
-      "description": "Nur für die Saphir-Edition nötig. Deine deutsche ROM: Pokemon - Saphir-Edition (Germany).gba",
+      "description": "Nur für die Saphir-Edition nötig. Deine deutsche ROM: Pokemon - Saphir-Edition (Germany).gba (auch Rev 1)",
       "file": "saphir_de.gba",
       "md5": [
-        "43906c58afaf0760f62ec698ef10eafc"
+        "43906c58afaf0760f62ec698ef10eafc",
+        "9d816b369343d39b94af9a8b0ce7f63b"
       ],
       "size": 16777216
     },

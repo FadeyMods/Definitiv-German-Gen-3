@@ -115,23 +115,138 @@ return function(W)
 
   -- ------------------------------------------------------------ Datendateien
   local DATEN = {}
+  -- Dateien, deren Port-Extraktor Platzhalter als eigene Marken schreibt (W.teile wuerde sie verwerfen):
+  -- Spielername, Rivale, Textvariablen; Questlog zusaetzlich $F7 <n> -> {D<n>}.  Wie die Extraktoren in
+  -- src/import/gba (quest_log_extract, help_extract, fame_checker_extract, Duellturm-Rekorde).
+  local function strVar(n) return "{STR_VAR_" .. n .. "}" end
+  local PLATZHALTER = {
+    ["quest_log/pack.lua"] = { strvar = function(n) return "{S" .. n .. "}" end, f7 = true, ohneTags = true },
+    ["help/pack.lua"] = { strvar = function(n) return n == 1 and "{PC_OWNER}" or "" end, ohneTags = true,
+      f9 = { [0] = "↑", [1] = "↓", [2] = "←", [3] = "→", [4] = "+", [10] = "①", [11] = "②", [12] = "③",
+             [13] = "④", [14] = "⑤", [15] = "⑥", [16] = "⑦", [17] = "⑧", [18] = "⑨", [19] = "(",
+             [20] = ")", [21] = "◎", [22] = "△", [23] = "✕" } },
+    ["fame_checker/pack.lua"] = { strvar = strVar, para = "\\p", scroll = "\\l", ohneTags = true },
+    ["rse/battle_tower_records/manifest.lua"] = { strvar = strVar },
+  }
+  local function platzhalterText(off, len, stil)
+    local out, bytes = {}, {}
+    local function flush()
+      for _, s in ipairs(W.decodeBytes(bytes) or {}) do
+        if s.t == "text" then out[#out + 1] = s.s
+        elseif s.t == "nl" then out[#out + 1] = "\n"
+        elseif s.t == "para" then out[#out + 1] = stil.para or "\n"
+        elseif s.t == "scroll" then out[#out + 1] = stil.scroll or "\n"
+        elseif s.t == "player" then out[#out + 1] = "{PLAYER}"
+        elseif s.t == "rival" then out[#out + 1] = "{RIVAL}"
+        elseif s.t == "strvar" then out[#out + 1] = stil.strvar(s.n)
+        elseif s.t == "tag" and s.tag and not stil.ohneTags then out[#out + 1] = s.tag end
+      end
+      bytes = {}
+    end
+    local stop = off + len
+    while off < stop do
+      local b = W.rom:byte(off + 1)
+      off = off + 1
+      if not b or b == 255 then break end
+      if b == 0xF7 and stil.f7 then
+        flush()
+        out[#out + 1] = "{D" .. (W.rom:byte(off + 1) or 0) .. "}"
+        off = off + 1
+      elseif b == 0xF9 and stil.f9 then
+        flush()
+        out[#out + 1] = stil.f9[W.rom:byte(off + 1) or -1] or ""
+        off = off + 1
+      else
+        bytes[#bytes + 1] = b
+      end
+    end
+    bytes[#bytes + 1] = 0xFF
+    flush()
+    return table.concat(out)
+  end
   for rel, karte in pairs(R.daten or {}) do
     local m = {}
+    local stil = PLATZHALTER[rel]
     for en, teile in pairs(karte) do
       if type(en) == "string" and (en:sub(1, 1) == "%" or en:sub(1, 1) == "^") then
         m[en] = teile                     -- eingebettetes IR: DE-Adresse (Zahl), dekodiert beim Ersetzen
+      elseif stil and type(teile) == "table" and #teile == 1 and type(teile[1]) == "table" then
+        local ok, s = pcall(platzhalterText, teile[1][1], teile[1][2], stil)
+        m[en] = ok and s or W.teile(teile)
       else
         m[en] = W.teile(teile):gsub("\f", "\n"):gsub("\v", "\n")
       end
     end
     DATEN[rel] = m
   end
+  -- Abspann (R.abspann): die deutschen Editionen haben andere Seiten bzw. Mitwirkende (Rubin/Saphir 49 statt
+  -- 52 Seiten, Smaragd 55 statt 57, Feuerrot/Blattgruen deutsches Team) -> wird ganz aus der DE-ROM neu gebaut
+  local ABSPANN = R.abspann
+  if ABSPANN then DATEN[ABSPANN.datei] = DATEN[ABSPANN.datei] or {} end
   local IR = {}
   for _, rel in ipairs(R.irDateien or {}) do IR[rel] = true end
   -- Manifest-Felder mit Klartext + IR (Beerenmixer: texts[k], irs[k]) -> DE-Text der Adresse R.feldTexte[Datei][k]
   local FELD = R.feldTexte or {}
   for rel in pairs(FELD) do IR[rel] = IR[rel] or false end
   local TextIR = require("src.core.game3.scripting.text_ir")
+  -- Abspann neu aufbauen, Aufbau wie die Port-Extraktoren (src/import/gba/rs/extract_credits.lua,
+  -- rse/credits_extract.lua, credits_extract.lua), nur aus der deutschen Tabelle
+  local function zeiger(off)
+    local a, b, c, d = W.rom:byte(off + 1, off + 4)
+    local p = a and (a + b * 256 + c * 65536 + d * 16777216 - 0x08000000)
+    if p and p >= 0 and p < #W.rom then return p end
+  end
+  local function bisEnde(off)
+    local stop = W.rom:find("\255", off + 1, true)
+    return { W.rom:byte(off + 1, stop) }
+  end
+  local function abspannText(off)
+    local out = {}
+    local segs = W.mitZeichen(TextIR.decode, string.char(unpack(bisEnde(off))))
+    for _, seg in ipairs(segs or {}) do
+      if seg.t == "nl" then out[#out + 1] = "\n"
+      elseif seg.t == "ext" and seg.cmd == 0x13 then out[#out + 1] = string.format("{CLEAR_TO %d}", seg.args[1])
+      elseif seg.t == "text" then out[#out + 1] = seg.s end
+    end
+    return table.concat(out)
+  end
+  local function abspannNeu(tab)
+    local A = ABSPANN
+    if A.art == "rs" or A.art == "rse" then
+      local seiten = {}
+      for s = 0, A.seiten - 1 do
+        local zeilen = {}
+        for z = 0, 4 do
+          local e = assert(zeiger(A.tabelle + (s * 5 + z) * 4), "Abspann-Eintrag")
+          local t = zeiger(e + 4)
+          local raw = t and bisEnde(t) or { 255 }
+          local text = W.mitZeichen(function()
+            return TextIR.toPlain(TextIR.decode(raw, A.art == "rs" and { dialect = "rs" } or nil), {})
+          end)
+          if A.art == "rs" then
+            local titel = raw[1] == 0xFC and raw[2] == 3 and raw[3] == 9
+            zeilen[#zeilen + 1] = { isTitle = titel, text = text, raw = raw, nativeX = W.rom:byte(e + 1),
+              palette = titel and 9 or 8 }
+          else
+            zeilen[#zeilen + 1] = { isTitle = W.rom:byte(e + 2) ~= 0, text = text }
+          end
+        end
+        seiten[#seiten + 1] = zeilen
+      end
+      -- pageCount bleibt (die Cache-Pruefung des Ports verlangt 52 bzw. den US-Wert und liest ueber dieselbe
+      -- Huelle); die Abspann-Anzeige uebernimmt dePageCount beim Laden (Huelle an gba_machine unten)
+      tab.pages, tab.dePageCount = seiten, A.seiten
+      if A.wechsel then tab.pageTransitions = A.wechsel end
+    elseif A.art == "frlg" then
+      if A.titel then tab.title = abspannText(A.titel) end
+      tab.texts = tab.texts or {}
+      for i = 0, A.anzahl - 1 do
+        local b = A.texte + i * 12
+        tab.texts[i] = { title = abspannText(assert(zeiger(b), "Abspann-Titel")),
+          names = abspannText(assert(zeiger(b + 4), "Abspann-Namen")), unused = W.rom:byte(b + 9) ~= 0 }
+      end
+    end
+  end
   local function feldText(off)
     if W.ver ~= "emerald" then
       -- rs/extract_berry_blender.lua: IR.toAscii(IR.decode(bytes, { dialect = "rs" }))
@@ -158,14 +273,22 @@ return function(W)
     teile[#teile + 1] = teil(cur)
     return table.concat(teile)
   end
+  -- Zuordnung Pfad -> Rezeptdatei: laengster Treffer mit Verzeichnisgrenze.  (Frueher reichte das Dateiende;
+  -- "frontier/trainers.lua" passte dann auch auf "trainers.lua" -- je nach pairs-Reihenfolge wurden die
+  -- beiden Dateien vertauscht und das falsche Ergebnis in fertig[] zwischengespeichert.)
+  local function passt(pfad, rel)
+    -- Rezeptpfade sind relativ zu data/generated/gba/
+    return pfad == rel or pfad:sub(-#rel - 4) == "gba/" .. rel
+  end
   local function zielVon(pfad)
     if type(pfad) ~= "string" then return nil end
-    for rel in pairs(DATEN) do
-      if pfad:sub(-#rel) == rel then return rel end
+    local best
+    for _, tab in ipairs({ DATEN, IR }) do
+      for rel in pairs(tab) do
+        if passt(pfad, rel) and (not best or #rel > #best) then best = rel end
+      end
     end
-    for rel in pairs(IR) do
-      if pfad:sub(-#rel) == rel then return rel end
-    end
+    return best
   end
   local function ser(v)
     local t = type(v)
@@ -191,7 +314,9 @@ return function(W)
     local m = DATEN[rel]
     local function walk(x)
       for k, w in pairs(x) do
-        if m and type(w) == "string" and m[w] then x[k] = m[w]
+        -- englischer Text der Datei -> DE-Text ueber seine Pruefsumme (das Rezept fuehrt keine Spieltexte)
+        local de = m and type(w) == "string" and w ~= "" and W.nachText(m, w)
+        if de then x[k] = de
         elseif type(w) == "table" then
           -- eingebetteter Text: { ir = {...}, key = "g3:...", name = Label } -> DE-ir aus der ROM
           if IR[rel] and type(w.ir) == "table" and type(w.key) == "string" and R.text and R.text[w.key] then
@@ -244,8 +369,20 @@ return function(W)
           node = type(node) == "table" and node[teile[i]] or nil
         end
         local last = teile[#teile]
+        -- { Adresse, "bis_absatz" }: nur bis zum ersten Absatz (die DE-ROM fasst manche kurzen US-Texte mit dem
+        -- folgenden zu einem zusammen, z. B. Smaragd-Geheimgeschehen „Danke, dass du …“)
+        local adr, bisAbsatz = w, false
+        if type(w) == "table" then adr, bisAbsatz = w[1], w[2] == "bis_absatz" end
         if type(node) == "table" and type(node[last]) == "table" then
-          local okD, ir = pcall(W.decodeAt, w, false)
+          local okD, ir = pcall(W.decodeAt, adr, false)
+          if okD and ir and bisAbsatz then
+            for i, e in ipairs(ir) do
+              if type(e) == "table" and e.t == "para" then
+                for j = #ir, i, -1 do ir[j] = nil end
+                break
+              end
+            end
+          end
           if okD and ir then node[last] = ir end
         end
       end
@@ -256,6 +393,10 @@ return function(W)
       local i, f = k:match("^#(%d+)%.([%w_]+)$")
       local e = i and tab[tonumber(i)]
       if type(e) == "table" and e[f] ~= nil then e[f] = w end
+    end
+    if ABSPANN and rel == ABSPANN.datei then
+      local ok, err = pcall(abspannNeu, tab)
+      if not ok then log:warn("Deutsch Gen 3: Abspann: %s", tostring(err)) end
     end
     fertig[rel] = "return " .. ser(tab)
     return fertig[rel]
@@ -268,6 +409,32 @@ return function(W)
       local ziel = type(src) == "string" and zielVon(rel)
       if ziel then return deutscheQuelle(ziel, src) end
       return src
+    end
+  end)
+  -- Port 0.3.89 laedt manche dieser Dateien schon vor dem Mod und haelt sie im Speicher (Trainer: Namen und
+  -- Klassen im Kampf blieben englisch; Mehrfachauswahl-Menues).  Nach dem Einklinken verwerfen bzw. neu laden,
+  -- damit sie durch readAt oben gehen.  (Gefunden mit Test/werkzeug/probe_gen3_daten.lua.)
+  -- (require statt package.loaded: in der Mod-Umgebung ist package.loaded abgeschirmt)
+  pcall(function()
+    local Tr = require("src.core.game3.scripting.trainers")
+    if type(Tr) == "table" then Tr._pack = nil end
+  end)
+  -- Hilfe-System und Questlog (Feuerrot/Blattgruen) installiert Game3 beim Start aus dem Cache; neu laden
+  pcall(function()
+    local Dataset = require("src.core.game3.dataset")
+    local c = Dataset.cache()
+    if c then
+      local Help = require("src.ui.game3.help_system")
+      if Help.pack then Help.install(c) end
+      local QL = require("src.ui.game3.quest_log")
+      if QL.pack then QL.install(c) end
+    end
+  end)
+  pcall(function()
+    local MC = require("src.core.game3.scripting.multichoice")
+    if type(MC) == "table" and type(MC.tryLoadCache) == "function" then
+      MC.LISTS = {}
+      MC.tryLoadCache()
     end
   end)
   -- Kit.loadLua (RS/RSE-Statusseite, Attacken-Neulerner) laedt ueber love.filesystem.load; im Mod ist
@@ -288,6 +455,26 @@ return function(W)
       end
       if fertigTab[ziel] then return fertigTab[ziel] end
       return Kit._deutschLoadLua(pfad, ...)
+    end
+  end)
+  -- Abspann Rubin/Saphir/Smaragd (ui/game3/rse/credits.lua) laedt sein Manifest ueber Machine:manifest mit
+  -- love.filesystem.load, also am readAt-Haken vorbei -> deutsches Manifest einsetzen, dePageCount anwenden
+  pcall(function()
+    local Machine = require("src.ui.game3.rse.gba_machine")
+    Machine._deutschManifest = Machine._deutschManifest or Machine.manifest
+    Machine.manifest = function(self, pfad, ...)
+      local ziel = type(pfad) == "string" and zielVon(pfad)
+      if ziel and self.manifests and self.manifests[pfad] == nil then
+        local src = require("src.import.CacheFs").readAt(pfad)
+        local chunk = type(src) == "string" and (loadstring or load)(src, "@" .. pfad)
+        local ok, tab = false, nil
+        if chunk then ok, tab = pcall(chunk) end
+        if ok and type(tab) == "table" then
+          if tab.dePageCount then tab.pageCount = tab.dePageCount end
+          self.manifests[pfad] = tab
+        end
+      end
+      return Machine._deutschManifest(self, pfad, ...)
     end
   end)
   -- Namenseingabe (src/ui/game3/naming.lua) laedt ihr Manifest ebenfalls mit love.filesystem.load; die

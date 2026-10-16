@@ -1,9 +1,9 @@
--- 📀🇩🇪 Definitiv German 💬✅ Gen 3  (Rubin, Saphir, Smaragd, Feuerrot, Blattgrün)
+-- Definitiv German Gen 3  (Rubin, Saphir, Smaragd, Feuerrot, Blattgrün)
 --
--- Dieser Mod enthaelt KEINE Texte oder Grafiken der Spiele.  Er bringt nur Rezepte mit
--- (Textschluessel des Ports -> Adresse in der deutschen ROM) und liest beim Start die deutsche ROM
--- der laufenden Edition, die du im Launcher importiert hast -- immer genau das Gegenstueck.  Die Texte
--- werden mit dem Decoder des Ports (TextIR.decode) umgewandelt -- genau wie beim Import der EN-ROM.
+-- Dieser Mod enthaelt KEINE Texte oder Grafiken der Spiele, auch keine englischen Texte als Suchschluessel.
+-- Er bringt nur Rezepte mit (Adressen in der deutschen ROM; Texte des Ports nur als Pruefsumme, siehe
+-- werkzeug.lua) und liest beim Start die deutsche ROM der laufenden Edition, die du im Launcher importiert
+-- hast -- immer genau das Gegenstueck.
 --
 -- Aufbau (jeder Baustein hat sein eigenes Rezept rezept_<edition>_<baustein>.lua):
 --   werkzeug.lua    Edition, deutsche ROM, alle Rezepte, Dekodieren mit den deutschen Zusatzzeichen
@@ -13,6 +13,8 @@
 --   port_texte.lua  feste Texte des Ports und Easy-Chat-Woerter              (mod.content.strings)
 --   layout.lua      Kaesten, Positionen, Masse, Einheiten, Tastatur wie in der DE-ROM (install(ctx))
 --   grafik.lua      Grafiken mit Schrift: Extraktoren des Ports auf der DE-ROM
+--   port_extras.lua Port-Zusaetze ohne ROM-Gegenstueck (MODS-Verwaltung, Optionen, Link-Menue)
+--   port_extras_daten.lua  deutsche Texte dazu, ERZEUGT von Test/werkzeug/port_extras_quelle.py
 return function(mod)
   local quelle = mod:read("werkzeug.lua")
   local chunk, err = (loadstring or load)(quelle or "", "@werkzeug.lua")
@@ -22,7 +24,7 @@ return function(mod)
   end
   local W = chunk()(mod)
   if not W then return end
-  for _, baustein in ipairs({ "dialoge", "daten", "port_texte", "layout", "grafik" }) do
+  for _, baustein in ipairs({ "dialoge", "daten", "port_texte", "layout", "grafik", "port_extras" }) do
     W.baustein(baustein)
   end
 end

@@ -223,6 +223,34 @@ return function(W)
       altAdr = VM.address
       VM.address = function(b) return G.adressen[b] or altAdr(b) end
     end
+    -- Kachelkarten, die die DE-ROM schmaler ablegt als der Extraktor liest (FRLG Teachy-TV-Endtafel "ENDE":
+    -- 6x2 statt 8x2): in der Breite des Extraktors als virtuelle Tabelle hinter dem ROM-Ende bereitstellen,
+    -- fehlende Spalten = Kachel 0
+    local romFuer = deRom
+    if e.karte16 then
+      local werte, FREI = {}, 0x01F00000
+      for _, k in ipairs(e.karte16) do
+        local basis = FREI + #werte * 2
+        for z = 0, k.hoehe - 1 do
+          for s = 0, k.breite - 1 do
+            local q, v = s - (k.links or 0), 0
+            if q >= 0 and q < k.quelleBreite then
+              local p = k.quelle + (z * k.quelleBreite + q) * 2
+              v = rom:byte(p + 1) + rom:byte(p + 2) * 256
+            end
+            werte[#werte + 1] = v
+          end
+        end
+        local t, key = stelle(k.blatt, neuTab)
+        if t then altBlatt[#altBlatt + 1] = { t, key, t[key] }; t[key] = basis end
+      end
+      romFuer = setmetatable({
+        u16 = function(_, off)
+          if off >= FREI and off < FREI + #werte * 2 then return werte[(off - FREI) / 2 + 1] end
+          return deRom:u16(off)
+        end,
+      }, { __index = deRom })
+    end
     -- 2) Bilder vor dem PNG-Kodieren abgreifen
     local marke, nr = {}, 0
     local function merke(rec)
@@ -250,7 +278,7 @@ return function(W)
     local o = { game = ver }
     for k, v in pairs(e.opts or {}) do o[k] = v end
     for _, code in ipairs(zusatzCodes) do CHARMAP[code] = zusatzZeichen[code] end
-    local ok, err = pcall(function() require(e.modul).run(deRom, cache, o) end)
+    local ok, err = pcall(function() require(e.modul).run(romFuer, cache, o) end)
     for _, code in ipairs(zusatzCodes) do CHARMAP[code] = nil end
     -- Felder, deren DE-Daten anders aufgebaut sind als der Extraktor erwartet (R/S-DE: Easy-Chat-Alphabet als
     -- Zeigertabelle statt char[4][32]): Zeilen aus den DE-Zeigern des Rezepts, kodiert wie rs/extract_easy_chat_ui
@@ -533,6 +561,81 @@ return function(W)
       local b = roh(rel)
       if b then return b end
       return vorher(rel, ...)
+    end
+  end)
+  -- Karten-Kachelsaetze, die in der DE-ROM anders sind (Smaragd: Schilder ARENA/POKeMART, Laden, Kampfkuppel).
+  -- Der Port zeichnet Karten aus vorbereiteten Metatile-Atlanten (native/<primaer>__<sekundaer>/mids*.idx).  Fuer
+  -- Paare mit einem betroffenen Kachelsatz setzt der Mod diese Atlanten beim Lesen aus der DE-ROM neu zusammen
+  -- -- mit denselben Port-Bausteinen wie der Import (Tileset.loadPair, NativePack.buildLayeredIdx) und denselben
+  -- Metatile-Nummern wie die US-Fassung.  Diese Paare laedt der Port dann im Hauptfaden (im Hintergrund-Faden
+  -- greift der Mod nicht).
+  pcall(function()
+    local KS = G.kachelsaetze
+    if not (KS and KS.strukturen) then return end
+    local CacheFs = require("src.import.CacheFs")
+    local Pack = require("src.import.gba.native_pack")
+    local Tileset = require("src.import.gba.tileset")
+    local MapTree = require("src.import.gba.map_tree")
+    local betroffen = {}
+    for _, n in ipairs(KS.betroffen or {}) do betroffen[n] = true end
+    local function paarBetroffen(paar)
+      local a, b = tostring(paar):match("^(.-)__(.+)$")
+      return a and (betroffen[a] or betroffen[b]) and KS.strukturen[a] and KS.strukturen[b] and a, b
+    end
+    local function spec(name)
+      local ts = MapTree.parseTileset(deRom, 0x08000000 + KS.strukturen[name])
+      local function off(p) return p and p >= 0x08000000 and p - 0x08000000 or nil end
+      return {
+        compressed = ts.compressed, secondary = ts.secondary, tiles = off(ts.tilesPtr),
+        palettes = off(ts.palettesPtr), metatiles = off(ts.metatilesPtr), attributes = off(ts.attributesPtr),
+        metatile_bytes = ts.metatile_bytes, attr_bytes = ts.attr_bytes, palette_count = ts.palette_count or 16,
+      }
+    end
+    local fertig = {}
+    local vorher = CacheFs.readAt
+    local function neuBauen(prefix, paar)
+      if fertig[paar] == nil then
+        fertig[paar] = false
+        local ok, err = pcall(function()
+          local a, b = paarBetroffen(paar)
+          local alt = vorher(prefix .. "native/" .. paar .. "/mids.idx")
+          local idx = alt and Pack.decodeIdx(alt)
+          if not idx then return end
+          local bundle = assert(Tileset.loadPair(deRom,
+            { tilesets = { [a] = spec(a), [b] = spec(b) }, tileset_pairs = { [paar] = { primary = a, secondary = b } } },
+            paar))
+          local unter, ueber, mitte = Pack.buildLayeredIdx(bundle, idx.midIds)
+          fertig[paar] = {
+            ["mids.idx"] = Pack.encodeIdx(unter), ["mids_over.idx"] = Pack.encodeIdx(ueber),
+            ["mids_mid.idx"] = Pack.encodeIdx(mitte), ["palettes.bin"] = Pack.encodePalettes(bundle.mapPals),
+          }
+        end)
+        if not ok then log:warn("Deutsch Gen 3: Kachelsatz %s: %s", tostring(paar), tostring(err)) end
+      end
+      return fertig[paar] or nil
+    end
+    CacheFs.readAt = function(rel, ...)
+      if type(rel) == "string" then
+        local prefix, paar, datei = rel:match("^(.-)native/([%w_]+)/([%w_]+%.%w+)$")
+        if paar and paarBetroffen(paar) then
+          local t = neuBauen(prefix, paar)
+          if t and t[datei] then return t[datei] end
+        end
+      end
+      return vorher(rel, ...)
+    end
+    -- betroffene Paare nicht an den Hintergrund-Faden geben (assetWorkerSpec = nil -> Laden im Hauptfaden)
+    local Stream = require("src.core.game3.asset_stream")
+    local altNew = Stream.new
+    Stream.new = function(kind, cache, ...)
+      if kind == "pair" and type(cache) == "table" and cache.assetWorkerSpec then
+        local spec0 = cache.assetWorkerSpec
+        cache.assetWorkerSpec = function(self, root, k, key, ...)
+          if k == "pair" and paarBetroffen(key) then return nil end
+          return spec0(self, root, k, key, ...)
+        end
+      end
+      return altNew(kind, cache, ...)
     end
   end)
   -- Lua-Manifeste aus dem DE-Lauf (Tabellen), einmal geladen
